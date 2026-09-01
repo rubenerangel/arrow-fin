@@ -7,9 +7,11 @@ services:
       POSTGRES_USER: arrowfin
       POSTGRES_PASSWORD: arrowfin
       POSTGRES_DB: arrowfin
-    # 5433 on purpose: 5432 is usually taken by a local Postgres install.
+    # 5435 rather than 5432: dev machines usually have a local Postgres on the default
+    # port, and often another project's container on 5433/5434. Change it here and in
+    # apps/api/.env if 5435 is taken on yours.
     ports:
-      - '5433:5432'
+      - '5435:5432'
     volumes:
       - arrowfin-pgdata:/var/lib/postgresql/data
     healthcheck:

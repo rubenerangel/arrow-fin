@@ -17,21 +17,21 @@ export interface AccessTokenClaims {
 @Injectable()
 export class TokenService {
   private readonly secret: string;
-  private readonly ttl: string;
+  readonly ttlSeconds: number;
 
   constructor(
     private readonly jwt: JwtService,
     config: ConfigService,
   ) {
     this.secret = config.get<string>('JWT_SECRET') ?? 'dev-only-not-a-production-secret';
-    this.ttl = config.get<string>('JWT_TTL') ?? '1h';
+    this.ttlSeconds = parseTtlSeconds(config.get<string>('JWT_TTL') ?? '1h');
   }
 
   sign(principal: TenantPrincipal): string {
     const claims: AccessTokenClaims = { sub: principal.traderId, bid: principal.brokerId };
     return this.jwt.sign(claims, {
       secret: this.secret,
-      expiresIn: this.ttl,
+      expiresIn: this.ttlSeconds,
       algorithm: 'HS256',
     });
   }
@@ -61,4 +61,14 @@ export class TokenService {
 
     return { traderId: claims.sub, brokerId: claims.bid };
   }
+}
+
+/** Accepts `900`, `15m`, `1h`, `7d`. Short tokens are a deliberate default. */
+function parseTtlSeconds(value: string): number {
+  const match = /^(\d+)([smhd]?)$/.exec(value.trim());
+  if (!match) return 3600;
+  const amount = Number(match[1]);
+  const unit = match[2] || 's';
+  const multiplier = { s: 1, m: 60, h: 3600, d: 86_400 }[unit as 's' | 'm' | 'h' | 'd'];
+  return amount * multiplier;
 }

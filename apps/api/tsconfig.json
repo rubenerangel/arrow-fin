@@ -20,6 +20,8 @@
     "esModuleInterop": true,
     "resolveJsonModule": true
   },
-  "include": ["src/**/*", "prisma/**/*"],
+  // prisma/ is deliberately out of the build graph: the seed runs through ts-node from a
+  // shell, and including it here makes tsc hoist rootDir and emit dist/src/main.js.
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

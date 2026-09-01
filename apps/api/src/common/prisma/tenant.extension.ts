@@ -65,55 +65,65 @@ function stampBrokerId(model: string, data: unknown, brokerId: string): unknown 
 }
 
 /**
- * The load-bearing piece of tenant isolation.
+ * The load-bearing piece of tenant isolation, extracted from the Prisma plumbing so it can
+ * be tested for real rather than through a mock of a mock. `tenantExtension()` below is a
+ * thin wrapper; this function is where every decision is made.
  *
- * Instead of asking every developer to remember `where: { brokerId }` on every query,
- * this intercepts EVERY operation on EVERY tenant-scoped model and injects it. The
- * failure mode is the important part: no tenant context means the query throws, not that
- * it returns every tenant's rows. Fail-closed.
+ * Instead of asking every developer to remember `where: { brokerId }` on every query, this
+ * runs on EVERY operation on EVERY tenant-scoped model and injects it. The failure mode is
+ * the important part: no tenant context means the query throws, not that it returns every
+ * tenant's rows. Fail-closed.
  *
- * This is the answer to "if someone forgets a WHERE broker_id = ? six months from now,
- * what catches it?" - nothing catches it, because they cannot express the query. Proven
- * by tenant-isolation.spec.ts, not by code review.
+ * This is the answer to "if someone forgets a WHERE broker_id = ? six months from now, what
+ * catches it?" - nothing needs to catch it, because they cannot express the query. Proven
+ * by tenant.extension.spec.ts, not by code review.
  */
+export function applyTenantScope(
+  model: string | undefined,
+  operation: string,
+  args: unknown,
+): unknown {
+  if (!model || !TENANT_SCOPED_MODELS.has(model)) {
+    return args;
+  }
+
+  const principal = TenantContext.get();
+
+  if (!principal) {
+    // Seeds and the pre-auth login lookup opt out explicitly and loudly.
+    if (TenantContext.isSystem()) {
+      return args;
+    }
+    throw new MissingTenantContextError(model, operation);
+  }
+
+  const next = { ...((args as Record<string, unknown>) ?? {}) };
+
+  if (FILTERED_OPERATIONS.has(operation)) {
+    // Prisma 5+ accepts non-unique filters alongside a unique selector, so this works
+    // uniformly for findUnique as well as findMany.
+    next.where = { ...((next.where as object) ?? {}), brokerId: principal.brokerId };
+  }
+
+  if (STAMPED_OPERATIONS.has(operation)) {
+    if (next.data !== undefined) {
+      next.data = stampBrokerId(model, next.data, principal.brokerId);
+    }
+    if (next.create !== undefined) {
+      next.create = stampBrokerId(model, next.create, principal.brokerId);
+    }
+  }
+
+  return next;
+}
+
 export function tenantExtension() {
   return Prisma.defineExtension({
     name: 'arrowfin-tenant-isolation',
     query: {
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
-          if (!model || !TENANT_SCOPED_MODELS.has(model)) {
-            return query(args);
-          }
-
-          const principal = TenantContext.get();
-
-          if (!principal) {
-            // Seeds and the pre-auth login lookup opt out explicitly and loudly.
-            if (TenantContext.isSystem()) {
-              return query(args);
-            }
-            throw new MissingTenantContextError(model, operation);
-          }
-
-          const next = (args ?? {}) as Record<string, unknown>;
-
-          if (FILTERED_OPERATIONS.has(operation)) {
-            // Prisma 5+ accepts non-unique filters alongside a unique selector, so this
-            // works uniformly for findUnique as well as findMany.
-            next.where = { ...((next.where as object) ?? {}), brokerId: principal.brokerId };
-          }
-
-          if (STAMPED_OPERATIONS.has(operation)) {
-            if (next.data !== undefined) {
-              next.data = stampBrokerId(model, next.data, principal.brokerId);
-            }
-            if (next.create !== undefined) {
-              next.create = stampBrokerId(model, next.create, principal.brokerId);
-            }
-          }
-
-          return query(next);
+          return query(applyTenantScope(model, operation, args) as typeof args);
         },
       },
     },
