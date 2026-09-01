@@ -14,26 +14,48 @@ by everyone remembering, and that the money maths is in pure functions you can a
 ## Layers
 
 ```
-        transport            application              domain
-  ┌────────────────────┐  ┌──────────────────┐  ┌──────────────────────┐
-  │ SnapshotController │→ │ SnapshotService  │→ │ session.ts           │
-  │ AuthController     │  │ ports.ts         │  │ positions.ts         │
-  │ FillsGateway (WS)  │  │ snapshot.dto.ts  │  │ pnl.ts               │
-  │ DevFillsController │  └──────────────────┘  │ risk.ts              │
-  └────────────────────┘           ↑            └──────────────────────┘
-            │                      │                       no imports
-            ↓                      │                       out of here
-  ┌────────────────────┐  ┌──────────────────┐
-  │ JwtAuthGuard       │  │ Prisma*Repository│ ── implements the ports
-  │ TenantContext      │  │ PrismaService    │ ── tenant extension lives here
-  └────────────────────┘  └──────────────────┘
+      drivers (transport)        application               domain
+  ┌──────────────────────┐   ┌─────────────────┐   ┌──────────────────────┐
+  │ SnapshotController   │   │ SnapshotService │ → │ session.ts           │
+  │ FillsGateway (WS)    │──▶│  implements     │   │ positions.ts         │
+  │ DevFillsController   │ ▲ │  SnapshotQuery  │   │ pnl.ts               │
+  │ AuthController       │ │ └─────────────────┘   │ risk.ts              │
+  └──────────────────────┘ │          │            └──────────────────────┘
+                           │          │ depends on             no imports
+              SNAPSHOT_QUERY          ▼ output ports           out of here
+                (input port) ┌─────────────────┐
+                             │ AccountRepo     │
+  ┌──────────────────────┐   │ FillRepo        │
+  │ JwtAuthGuard         │   │ InstrumentRepo  │
+  │ TenantContext        │   └─────────────────┘
+  └──────────────────────┘            ▲
+                             ┌─────────────────┐
+                             │ Prisma*Repository ── adapters
+                             │ PrismaService     ── tenant extension
+                             └─────────────────┘
 ```
 
-Dependencies point inward. The domain knows nothing about NestJS, Prisma, HTTP or the
-clock; the application layer knows the domain and a set of interfaces; the infrastructure
-implements those interfaces. That is the whole of the hexagonal story here — there is no
-CQRS, no event bus, no mediator. Adding one would be architecture for its own sake at this
-size.
+Dependencies point inward, on both sides. The domain knows nothing about NestJS, Prisma,
+HTTP or the clock. The application layer defines **input ports** (what drivers may ask for)
+and **output ports** (what it needs the world to provide), and depends on neither
+implementation.
+
+Concretely: `SnapshotController` and `FillsGateway` are both wired to `SNAPSHOT_QUERY`, not
+to `SnapshotService`. `snapshot.module.ts` is the only file that knows which class satisfies
+which token — the composition root. Two things this buys that are worth the ceremony:
+
+- REST and the socket call the *same* use case, so they cannot drift into disagreeing about
+  a trader's position. That is a real risk here: the gateway recomputes the snapshot on
+  every fill.
+- The input port's signature — `forTrader(traderId)` and nothing else — is a reviewable
+  contract. Adding an `accountId` parameter is a diff to `ports.ts`, not a detail buried
+  inside a service method, and it is exactly the change that would reintroduce the IDOR.
+
+Ports are `Symbol` tokens, not strings: no accidental collisions between modules, and a typo
+is a compile error rather than a provider that silently resolves to the wrong thing.
+
+That is the whole of the hexagonal story here — no CQRS, no event bus, no mediator. Adding
+one at this size would be architecture for its own sake.
 
 ## Invariants
 
@@ -103,8 +125,11 @@ Two things to know before you touch it:
 
 ## Conventions
 
-- **A new read use case**: add a method to a port in `application/ports.ts`, implement it in
-  `infrastructure/`, orchestrate in the service, and keep the calculation in `domain/`.
+- **A new read use case**: declare it on an input port in `application/ports.ts`, add any
+  data it needs to an output port, implement that in `infrastructure/`, orchestrate in the
+  service, and keep the calculation in `domain/`. Bind both ends in the module.
+- **A new driver** (a CLI, a queue consumer): depend on the input port token. If you find
+  yourself importing `SnapshotService`, that is the smell.
 - **A new tenant-owned table**: add the model, add `brokerId` to it, add its name to
   `TENANT_SCOPED_MODELS`, and add a case to `tenant.extension.spec.ts`.
 - **A new instrument**: it is data, not code. Add rows to `instruments.csv` and

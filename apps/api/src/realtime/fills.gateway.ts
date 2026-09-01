@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Inject, Logger } from '@nestjs/common';
 import {
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -8,7 +8,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { TokenService } from '../common/auth/token.service';
 import { TenantContext, TenantPrincipal } from '../common/tenant/tenant-context';
-import { SnapshotService } from '../snapshot/application/snapshot.service';
+import { SNAPSHOT_QUERY, SnapshotQuery } from '../snapshot/application/ports';
 import { SnapshotDto } from '../snapshot/application/snapshot.dto';
 
 /** What a client is told about a fill. Compare against the Fill model - most of it is gone. */
@@ -44,7 +44,9 @@ export class FillsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   constructor(
     private readonly tokens: TokenService,
-    private readonly snapshots: SnapshotService,
+    // Same input port the HTTP controller uses. One implementation of the snapshot means
+    // REST and the socket cannot drift into disagreeing about a trader's position.
+    @Inject(SNAPSHOT_QUERY) private readonly snapshots: SnapshotQuery,
   ) {}
 
   /**

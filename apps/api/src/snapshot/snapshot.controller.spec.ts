@@ -17,6 +17,7 @@ import {
   INSTRUMENT_REPOSITORY,
   InstrumentRepository,
   InstrumentView,
+  SNAPSHOT_QUERY,
   SessionFill,
 } from './application/ports';
 import { TokenService } from '../common/auth/token.service';
@@ -212,7 +213,10 @@ describe('GET /api/snapshot', () => {
       imports: [JwtModule.register({})],
       controllers: [SnapshotController],
       providers: [
-        SnapshotService,
+        // Bound through the port, exactly as SnapshotModule does it. Registering the class
+        // directly here would let the controller and the module disagree about their wiring
+        // and still have this suite pass.
+        { provide: SNAPSHOT_QUERY, useClass: SnapshotService },
         TokenService,
         { provide: ACCOUNT_REPOSITORY, useClass: FakeAccountRepository },
         { provide: FILL_REPOSITORY, useClass: FakeFillRepository },

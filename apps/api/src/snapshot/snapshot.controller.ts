@@ -1,12 +1,15 @@
-import { Controller, Get } from '@nestjs/common';
-import { SnapshotService } from './application/snapshot.service';
+import { Controller, Get, Inject } from '@nestjs/common';
+import { SNAPSHOT_QUERY, SnapshotQuery } from './application/ports';
 import { SnapshotDto } from './application/snapshot.dto';
 import { CurrentUser } from '../common/auth/current-user.decorator';
 import { TenantPrincipal } from '../common/tenant/tenant-context';
 
 @Controller('api')
 export class SnapshotController {
-  constructor(private readonly snapshots: SnapshotService) {}
+  // Depends on the input port, not on SnapshotService. The controller's job is to turn an
+  // HTTP request into a use-case call and back again; it has no business knowing that the
+  // answer comes from Prisma, or from three queries, or from a cache.
+  constructor(@Inject(SNAPSHOT_QUERY) private readonly snapshots: SnapshotQuery) {}
 
   /**
    * GET /api/snapshot

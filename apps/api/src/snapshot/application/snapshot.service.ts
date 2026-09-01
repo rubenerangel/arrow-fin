@@ -11,6 +11,7 @@ import {
   INSTRUMENT_REPOSITORY,
   InstrumentRepository,
   InstrumentView,
+  SnapshotQuery,
 } from './ports';
 import { AccountSummaryDto, PositionDto, SnapshotDto } from './snapshot.dto';
 import { buildPositions } from '../domain/positions';
@@ -26,8 +27,13 @@ import { sessionStart } from '../domain/session';
  */
 const EXCLUDED_ACCOUNT_STATUSES = new Set(['closed']);
 
+/**
+ * Implements the SNAPSHOT_QUERY input port. Nothing outside this module holds a reference
+ * to this class - the controller and the gateway are wired to the interface - so its
+ * internals, and the number of database round trips it makes, stay a private decision.
+ */
 @Injectable()
-export class SnapshotService {
+export class SnapshotService implements SnapshotQuery {
   constructor(
     @Inject(ACCOUNT_REPOSITORY) private readonly accounts: AccountRepository,
     @Inject(FILL_REPOSITORY) private readonly fills: FillRepository,
