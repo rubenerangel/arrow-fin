@@ -1,0 +1,160 @@
+// ArrowFin - Trader Daily Snapshot
+//
+// Two schema decisions carry the security story; both are argued in SECURITY.md.
+//
+// 1. `brokerId` is denormalised onto Account and Fill even though it is reachable by join
+//    (Fill -> Account -> Trader -> Broker). The tenant key living on every row a request can
+//    touch means isolation never depends on someone writing a three-table join correctly.
+//    The Prisma client extension in src/common/prisma/tenant.extension.ts can then enforce
+//    it mechanically on ANY query, which is the whole point.
+//
+// 2. Money is Decimal, never Float. Futures P&L is points * point_value_usd and 5643.25
+//    is not representable in binary floating point.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// The tenant. `id` is the tenant key referenced everywhere as brokerId.
+model Broker {
+  id             String   @id
+  name           String
+  type           String // retail | prop
+  whiteLabelName String?  @map("white_label_name")
+  apiKeyHash     String   @map("api_key_hash")
+  createdAt      DateTime @map("created_at")
+
+  traders  Trader[]
+  accounts Account[]
+  fills    Fill[]
+
+  @@map("brokers")
+}
+
+/// Regulated PII lives here and only here. Nothing in this model except id/brokerId/email
+/// is ever selected on the snapshot path - see SnapshotService and the PII regression test.
+model Trader {
+  id       String @id
+  brokerId String @map("broker_id")
+
+  firstName String @map("first_name")
+  lastName  String @map("last_name")
+  email     String @unique
+
+  // --- Regulated PII. Treated as sensitive at rest and never serialised outward. ---
+  phone        String?
+  dob          DateTime? @db.Date
+  ssnLast4     String?   @map("ssn_last4")
+  addressLine1 String?   @map("address_line1")
+  city         String?
+  state        String?
+  postalCode   String?   @map("postal_code")
+
+  // Free text typed by support agents. In this dataset these fields contain bank routing
+  // numbers, an s3:// path to a passport scan, and compliance case ids. Highest-risk
+  // columns in the schema; they have no read path outside a compliance tool.
+  notes      String? @db.Text
+  auditNotes String? @map("audit_notes") @db.Text
+
+  kycStatus String   @map("kyc_status")
+  createdAt DateTime @map("created_at")
+
+  broker   Broker    @relation(fields: [brokerId], references: [id])
+  accounts Account[]
+
+  // Login is by email; the tenant listing is by broker.
+  @@index([brokerId])
+  @@map("traders")
+}
+
+model Account {
+  id       String @id
+  traderId String @map("trader_id")
+  brokerId String @map("broker_id") // denormalised tenant key - see header note 1
+
+  accountNumber   String  @map("account_number")
+  accountType     String  @map("account_type") // funded | demo | eval | pro | pro_plus
+  balance         Decimal @db.Decimal(18, 4)
+  buyingPower     Decimal @map("buying_power") @db.Decimal(18, 4)
+  maxPositionSize Int     @map("max_position_size")
+  status          String // active | restricted | closed
+
+  createdAt DateTime @map("created_at")
+
+  trader Trader @relation(fields: [traderId], references: [id])
+  broker Broker @relation(fields: [brokerId], references: [id])
+  fills  Fill[]
+
+  // The snapshot resolves "which accounts does this trader hold" on every request.
+  @@index([brokerId, traderId])
+  @@map("accounts")
+}
+
+/// Contract specifications. Reference data, not tenant-scoped.
+/// pointValueUsd is the field that makes MNQ and NQ different instruments: same index,
+/// 10x the money per point.
+model Instrument {
+  symbol               String  @id
+  description          String
+  exchange             String
+  pointValueUsd        Decimal @map("point_value_usd") @db.Decimal(18, 6)
+  tickSize             Decimal @map("tick_size") @db.Decimal(18, 8)
+  tickValueUsd         Decimal @map("tick_value_usd") @db.Decimal(18, 6)
+  initialMarginUsd     Decimal @map("initial_margin_usd") @db.Decimal(18, 4)
+  maintenanceMarginUsd Decimal @map("maintenance_margin_usd") @db.Decimal(18, 4)
+
+  marketPrice MarketPrice?
+  fills       Fill[]
+
+  @@map("instruments")
+}
+
+/// Marks as of the dataset cut. Reference data, not tenant-scoped.
+model MarketPrice {
+  symbol    String   @id
+  markPrice Decimal  @map("mark_price") @db.Decimal(18, 8)
+  asOf      DateTime @map("as_of")
+
+  instrument Instrument @relation(fields: [symbol], references: [symbol])
+
+  @@map("market_prices")
+}
+
+model Fill {
+  id               String @id
+  accountId        String @map("account_id")
+  brokerId         String @map("broker_id") // denormalised tenant key - see header note 1
+  instrumentSymbol String @map("instrument_symbol")
+
+  side       String // BUY | SELL
+  quantity   Int
+  price      Decimal  @db.Decimal(18, 8)
+  filledAt   DateTime @map("filled_at")
+  /// Fills sharing an orderId are one order filled in pieces, not several orders.
+  orderId    String   @map("order_id")
+  liquidity  String // maker | taker
+  commission Decimal  @map("commission_usd") @db.Decimal(18, 4)
+
+  account    Account    @relation(fields: [accountId], references: [id])
+  broker     Broker     @relation(fields: [brokerId], references: [id])
+  instrument Instrument @relation(fields: [instrumentSymbol], references: [symbol])
+
+  // THE index to explain. The snapshot query is, literally:
+  //   WHERE broker_id = $1 AND account_id IN (...) AND filled_at >= $sessionStart
+  //   ORDER BY filled_at
+  // Leading with brokerId means the tenant predicate - the one the extension always adds -
+  // is served by the index rather than filtered after the fact. accountId next because it
+  // is the most selective column (687 fills over 17 accounts). filledAt last so the session
+  // window is a range scan on the index tail and the ORDER BY needs no sort.
+  // An index on filledAt alone would scan every tenant's fills for the session and discard
+  // 90% of them; that is the shape that looks fine on seed data and falls over in production.
+  @@index([brokerId, accountId, filledAt])
+  // Position rebuilds by order are a separate access path (support/audit tooling).
+  @@index([brokerId, orderId])
+  @@map("fills")
+}
