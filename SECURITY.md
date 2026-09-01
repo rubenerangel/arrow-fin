@@ -61,11 +61,18 @@ tenant-owned model:
 
 ```ts
 if (!principal) {
-  if (TenantContext.isSystem()) return args;
+  if (scope.isSystem) return args;
   throw new MissingTenantContextError(model, operation);   // fail-closed
 }
 next.where = { ...next.where, brokerId: principal.brokerId };
 ```
+
+`scope` is a parameter, not something the function reaches for. `applyTenantScope` is pure —
+no ambient reads, no mutation, no I/O — and the single line that touches
+`AsyncLocalStorage` lives in `currentTenantScope()` beside it. For the one rule in this
+codebase that must not be wrong, that means the rule can be reviewed and tested in isolation
+from the plumbing that feeds it, and a test cannot pass because of context another test left
+behind.
 
 Note what it does with a `brokerId` the caller supplied: **overwrites it.** A handler cannot
 widen its own scope even deliberately.

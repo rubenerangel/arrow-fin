@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { TenantContext } from '../tenant/tenant-context';
+import { TenantContext, TenantPrincipal } from '../tenant/tenant-context';
 
 /**
  * Models carrying the denormalised tenant key. Anything listed here is unreachable
@@ -65,9 +65,29 @@ function stampBrokerId(model: string, data: unknown, brokerId: string): unknown 
 }
 
 /**
- * The load-bearing piece of tenant isolation, extracted from the Prisma plumbing so it can
- * be tested for real rather than through a mock of a mock. `tenantExtension()` below is a
- * thin wrapper; this function is where every decision is made.
+ * Who the caller is, as far as scoping is concerned. Passed in rather than read, which is
+ * what makes `applyTenantScope` below a pure function of its arguments.
+ */
+export interface TenantScope {
+  /** Undefined outside a tenant-scoped request. */
+  readonly principal: TenantPrincipal | undefined;
+  /** True inside `TenantContext.runAsSystem` - seeds and the pre-auth login lookup. */
+  readonly isSystem: boolean;
+}
+
+/**
+ * The single point where ambient state is read. Everything downstream of it is pure.
+ *
+ * Keeping this separate from the decision logic is deliberate: it is one line, it is the
+ * only line that depends on where in the async tree we happen to be, and it is the only
+ * line that would have to change if the principal ever arrived some other way.
+ */
+export function currentTenantScope(): TenantScope {
+  return { principal: TenantContext.get(), isSystem: TenantContext.isSystem() };
+}
+
+/**
+ * The load-bearing piece of tenant isolation.
  *
  * Instead of asking every developer to remember `where: { brokerId }` on every query, this
  * runs on EVERY operation on EVERY tenant-scoped model and injects it. The failure mode is
@@ -77,21 +97,36 @@ function stampBrokerId(model: string, data: unknown, brokerId: string): unknown 
  * This is the answer to "if someone forgets a WHERE broker_id = ? six months from now, what
  * catches it?" - nothing needs to catch it, because they cannot express the query. Proven
  * by tenant.extension.spec.ts, not by code review.
+ *
+ * **It is a pure function**, and for a rule this important that is the point rather than a
+ * nicety. It reads no ambient state, mutates nothing, and performs no I/O, so its behaviour
+ * is fully determined by four visible arguments. Concretely that buys:
+ *
+ *  - tests that state the scenario in the call itself, instead of nesting it inside an
+ *    AsyncLocalStorage wrapper and hoping the wrapper is doing what it appears to
+ *  - no way for a passing test to depend on leftover context from the test before it
+ *  - a reviewer can decide whether the rule is right by reading one function, without
+ *    tracing where the principal came from
+ *
+ * It throws on invalid input, which is still deterministic in its arguments - Prisma's
+ * middleware contract wants an exception here, and a Result type would be ceremony that
+ * every call site immediately unwraps.
  */
 export function applyTenantScope(
   model: string | undefined,
   operation: string,
   args: unknown,
+  scope: TenantScope,
 ): unknown {
   if (!model || !TENANT_SCOPED_MODELS.has(model)) {
     return args;
   }
 
-  const principal = TenantContext.get();
+  const { principal } = scope;
 
   if (!principal) {
     // Seeds and the pre-auth login lookup opt out explicitly and loudly.
-    if (TenantContext.isSystem()) {
+    if (scope.isSystem) {
       return args;
     }
     throw new MissingTenantContextError(model, operation);
@@ -117,13 +152,18 @@ export function applyTenantScope(
   return next;
 }
 
+/**
+ * The impure shell around the pure core: read the ambient scope once, hand it to the rule,
+ * pass the result on. Everything worth reviewing is in `applyTenantScope`.
+ */
 export function tenantExtension() {
   return Prisma.defineExtension({
     name: 'arrowfin-tenant-isolation',
     query: {
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
-          return query(applyTenantScope(model, operation, args) as typeof args);
+          const scoped = applyTenantScope(model, operation, args, currentTenantScope());
+          return query(scoped as typeof args);
         },
       },
     },

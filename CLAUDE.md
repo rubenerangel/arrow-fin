@@ -127,7 +127,21 @@ fills for the session and discards most of them — the shape that looks fine on
 
 `TenantContext` is an `AsyncLocalStorage` holding `{ traderId, brokerId }`, populated once
 by `JwtAuthGuard` from signed claims. `PrismaService.db` is the client extended with
-`tenantExtension()`, which calls `applyTenantScope()` on every operation:
+`tenantExtension()`.
+
+The extension is split along a pure/impure seam, and for the one rule that must not be wrong
+that split is the point rather than a nicety:
+
+- **`currentTenantScope()`** — the single line that reads ambient state. One line, and the
+  only thing that would change if the principal ever arrived some other way.
+- **`applyTenantScope(model, operation, args, scope)`** — a **pure function**. No ambient
+  reads, no mutation, no I/O; its behaviour is fully determined by four visible arguments.
+  Tests state each scenario in the call itself instead of nesting it inside an
+  `AsyncLocalStorage` wrapper, no test can pass because of context the previous one left
+  behind, and a reviewer can judge the rule by reading one function without tracing where
+  the principal came from.
+
+The rule itself, on every operation:
 
 - tenant-scoped model + principal present → inject `brokerId` into `where`, stamp it on writes
 - tenant-scoped model + no principal → **throw**, not "return everything"
