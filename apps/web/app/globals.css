@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+/*
+  Dark only, not `prefers-color-scheme`. A trading UI is looked at for eight hours in a room
+  with the lights down, and a widget that flips to white because the OS decided it is morning
+  is a worse experience than one that never had a light mode. If ArrowFin has a light theme
+  elsewhere this becomes a token swap, not a rewrite.
+*/
+:root {
+  --background: #09090b;
+  --foreground: #e4e4e7;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}

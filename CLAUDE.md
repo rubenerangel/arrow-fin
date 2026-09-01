@@ -143,6 +143,11 @@ Listed so nobody "fixes" something that was a decision. The reasoning for each i
   first thing I would add with more time.
 - No replay buffer on the socket. Clients detect a gap via `seq` and refetch; the server
   cannot re-send what a disconnected client missed.
+- The web client keeps its token in `sessionStorage`, not an httpOnly cookie, because the
+  socket handshake needs it readable from JS. Argued in `apps/web/lib/session.ts`; the real
+  fix is a short-lived socket ticket minted by a route handler.
+- No frontend tests. The two worth writing first are the `STALE` state and the >75 risk
+  rendering — the two places a UI bug becomes a trading decision.
 - Login takes an email and no password. There is no password in the dataset and inventing a
   hash column would have been theatre.
 - `prisma db push` rather than migrations. Fine for an assessment, not for a team.

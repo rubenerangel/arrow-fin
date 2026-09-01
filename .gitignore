@@ -22,3 +22,8 @@ dataset arrowfin/
 
 # Assessment brief, not part of the deliverable
 Technical_Assessment_Senior_Full_Stack_Engineer_Team_Lead.docx
+
+# Next.js
+apps/web/.next/
+apps/web/out/
+apps/web/next-env.d.ts

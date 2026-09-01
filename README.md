@@ -1,7 +1,7 @@
 # ArrowFin — Trader Daily Snapshot
 
-Technical assessment submission. Backend is complete and verified end to end; the frontend
-widget is the part I cut, and the reasoning is in "What I cut and why" below.
+Technical assessment submission. All five tasks are done and the feature works end to end:
+sign in, snapshot renders, push a fill, the widget and the risk indicator move.
 
 **Time taken:** <!-- RELLENAR: horas reales --> (budget was 2–3 hours)
 
@@ -47,7 +47,7 @@ Code throughout, and the parts I would have written differently by hand are name
 | | |
 | --- | --- |
 | **Task 1** — backend snapshot service | Done, verified against the seeded dataset |
-| **Task 2** — frontend widget | **Cut.** See below |
+| **Task 2** — frontend widget | Done, live over the socket |
 | **Task 3** — security & PII | [`SECURITY.md`](SECURITY.md) |
 | **Task 4** — code review | [`CODE_REVIEW.md`](CODE_REVIEW.md) |
 | **Task 5** — architecture & handoff | Below |
@@ -130,26 +130,55 @@ treatment: a `STALE` badge, figures dimmed, and the "as of" timestamp switched t
 confirmed update. The dangerous state is not "no data", it's a risk score of 42 that is
 actually 96 and looks exactly as authoritative as it did a minute ago.
 
-**Implemented:** `seq` on the wire, the high-water mark on connect.
-**Not implemented:** the server-side replay buffer, and — since the widget was cut — the
-client half. If you connected a naive client to this socket today it *would* show stale
-numbers on a drop, and that's the honest answer.
+**Implemented:** `seq` on the wire, the high-water mark on connect, gap detection on
+reconnect, the refetch, and the `STALE` treatment (`hooks/useSnapshotStream.ts`,
+`components/ConnectionBadge.tsx`).
+**Not implemented:** the server-side replay buffer. A client that reconnects is told it
+missed something and refetches; it is never told *what* it missed. For this widget that is
+the right trade — the buffer only earns its place when a client needs the individual events,
+such as a fills blotter.
+
+## Running the widget
+
+```bash
+cd apps/web && npm install && npm run dev     # http://localhost:3000
+```
+
+Sign in with any seeded trader (the page lists four, one per interesting case). With the page
+open, push a fill and watch it move:
+
+```bash
+curl -s localhost:3001/dev/fills -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"accountId":"ACC-1011","instrumentSymbol":"MES","side":"BUY","quantity":2,
+       "price":5643.25,"commissionUsd":1.40}'
+```
+
+Stop the API and the badge flips to `STALE` and the figures dim, rather than sitting there
+looking authoritative.
+
+**Verified, not assumed.** A script connected two sockets — one Meridian, one Summit —
+pushed a fill for the Meridian trader, and asserted the Summit socket received zero events.
+An anonymous socket is rejected at the handshake, and a Meridian token posting a fill for a
+Summit account gets a 400 from the same tenant machinery that guards reads.
 
 ## What I cut and why
 
-**The frontend widget.** With two hours, the assessment weights are 25% security, 20%
-backend, 20% frontend, 20% communication, 15% code review — 60% of the grade is judgment
-expressed in writing. A half-built widget would have cost the security writeup, the code
-review, or the tests, and traded a stronger score for a weaker one.
+**Prisma migrations** (`db push` instead) — fine for an assessment, wrong for a team.
 
-What I'd build first if this continued, in order: the snapshot card with the >75 risk state
-unmissable (full red border, not a coloured number — it needs to be visible from across a
-desk), then loading/error/empty/**disconnected** states, then the socket hook with a real
-`useEffect` cleanup, then polish.
+**Password auth** — there are no passwords in the dataset and a fake hash column would be
+theatre. Login takes an email and the API says as much.
 
-**Also cut, deliberately:** Prisma migrations (`db push` instead), password auth (there are
-no passwords in the dataset and a fake hash column would be theatre), and the production
-hardening enumerated in [`SECURITY.md` §5](SECURITY.md).
+**Token storage** is `sessionStorage`, not an httpOnly cookie. This is the one shortcut I am
+least comfortable with and it is argued in `lib/session.ts`: the socket handshake needs the
+token readable from JavaScript, so doing it properly means a route-handler proxy or a
+short-lived socket ticket. That is a good half hour, and I spent it on tenant isolation.
+
+**Frontend tests.** The backend has 52; the widget has none. Given more time the first two
+would be the `STALE` state and the >75 risk rendering, because those are the two places where
+a UI bug is a trading decision rather than a cosmetic one.
+
+**The production hardening** enumerated in [`SECURITY.md` §5](SECURITY.md).
 
 ## LLM use
 
@@ -160,8 +189,9 @@ Specifically:
   parser and seed script, the Prisma schema mechanics, and the repository adapters. Boring,
   verifiable code.
 - **Generated from decisions I made:** the tenant extension, the endpoint shape, the domain
-  split, and the test cases. The design calls — enforce isolation in the data layer, no
-  subject id in the route, `now` injected, fail-closed — were mine; the typing was not.
+  split, the test cases, and the widget. The design calls — enforce isolation in the data
+  layer, no subject id in the route, `now` injected, fail-closed, push a recomputed snapshot
+  rather than a delta — were mine; the typing was not.
 - **My own analysis, before any code:** reading the dataset for the traps above. The session
   boundary, the point-value difference and the zero-balance account came out of inspecting
   the CSVs, and they're what the design is built around.
@@ -174,7 +204,8 @@ denser tests; the LLM's instinct is to enumerate cases, and I'd have leaned hard
 tenant-isolation and point-value ones and dropped a couple of the others.
 
 **What I verified rather than trusted:** every number in this README came from the running
-service against the seeded database, not from the model. The endpoint output above is real.
+service against the seeded database, not from the model. The endpoint output above is real,
+and so is the two-socket cross-tenant check.
 Two of the tests it wrote failed on first run — one from a band-boundary rounding assumption,
 one because a PII test greped for `"ssn"` and `grossNotionalUsd` contains it. That second one
 is instructive: it would have passed review and then failed noisily later. I replaced it with
