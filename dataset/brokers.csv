@@ -1,0 +1,4 @@
+id,name,type,white_label_name,api_key_hash,created_at
+BRK-ARWP,ArrowFin Retail (ECX),retail,EdgeClear X,sha256:9f2b1c44e8a7d310bb5c07f4a1e93d6c2f8b45a09e1d7c3b6a2f4e8d0c9b7a51,2025-06-14T00:00:00Z
+BRK-SMPT,Summit Prop Trading,prop,Summit Trader Portal,sha256:3d7e5a19c04b8f62d19e7b3c5a08f4d2e6c1b9a7f3d5e8c0a2b4d6f8e1c3a5b7,2025-09-02T00:00:00Z
+BRK-MRDN,Meridian Futures Group,prop,Meridian Desk,sha256:7a1f9c3e5d8b2064af3c7e9d1b5a8f2c4e6d0b8a3f5c7e9d1b3a5c7e9f1d3b5a,2026-01-20T00:00:00Z

@@ -1,0 +1,24 @@
+node_modules/
+dist/
+build/
+.next/
+coverage/
+*.tsbuildinfo
+
+# Secrets. .env.example is committed, .env is not.
+.env
+.env.local
+.env.*.local
+
+# macOS zip artifacts from the dataset download
+__MACOSX/
+.DS_Store
+
+*.log
+npm-debug.log*
+
+# Original zip extraction of the dataset; the working copy lives in dataset/
+dataset arrowfin/
+
+# Assessment brief, not part of the deliverable
+Technical_Assessment_Senior_Full_Stack_Engineer_Team_Lead.docx
