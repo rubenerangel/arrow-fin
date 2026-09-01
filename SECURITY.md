@@ -244,3 +244,13 @@ descending order of how much I trust them:
 3. It writes through `prisma.db` under the caller's context, so the extension stamps
    `brokerId` from the token and a cross-tenant write is refused by the same code that
    protects reads. A dev tool cannot quietly become a tenancy bypass.
+
+The gate itself requires **two** conditions — not production, *and* `DEV_TOOLS=on` — because
+a single `NODE_ENV !== 'production'` check mounts a write endpoint in every environment
+where `NODE_ENV` is unset or misspelt, which is most of the ones nobody configured on
+purpose. `config/env.spec.ts` tests exactly that case.
+
+`assertProductionConfig()` runs before the process binds a port and refuses to start a
+production instance that still carries the dev `JWT_SECRET`, has `DEV_TOOLS` on, or points
+CORS at localhost. Booting with the shipped secret means every token that instance issues is
+forgeable by anyone who has read the repository — that is a stop, not a warning.

@@ -8,6 +8,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { TokenService } from '../common/auth/token.service';
 import { TenantContext, TenantPrincipal } from '../common/tenant/tenant-context';
+import { env } from '../config/env';
 import { SNAPSHOT_QUERY, SnapshotQuery } from '../snapshot/application/ports';
 import { SnapshotDto } from '../snapshot/application/snapshot.dto';
 
@@ -25,9 +26,13 @@ interface AuthenticatedSocket extends Socket {
   principal?: TenantPrincipal;
 }
 
+// Decorator metadata is evaluated at import time, before the DI container exists, so this
+// is one of the two places that cannot inject ConfigService. `env` guarantees .env has been
+// read by then - reading process.env directly here silently ignored CORS_ORIGIN and left
+// the socket on a different origin policy than the HTTP server. See src/config/env.ts.
 @WebSocketGateway({
   namespace: '/rt',
-  cors: { origin: process.env.CORS_ORIGIN ?? 'http://localhost:3000', credentials: true },
+  cors: { origin: env.corsOrigin, credentials: true },
 })
 export class FillsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() private server!: Server;

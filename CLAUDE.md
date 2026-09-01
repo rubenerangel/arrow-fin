@@ -71,6 +71,24 @@ else's id. Guarded by the tenant-isolation tests in `snapshot.controller.spec.ts
 is a review blocker: it bypasses the tenant extension entirely. The seed script is the one
 exception, and it runs from a shell, not from a request.
 
+**2b. Consumers receive dependencies through their constructor.** No `new SomeService()`, no
+reaching into a container, no reading `process.env` inside a provider — inject
+`ConfigService`. A class's constructor should be the complete list of what it needs, because
+that is what makes it substitutable in a test and honest in review.
+
+Two named exceptions, both constraints rather than preferences:
+
+- **Import-time configuration** — decorator arguments and the `AppModule` imports array are
+  evaluated before the DI container exists, so there is no constructor to inject into. Those
+  read `src/config/env.ts`, which loads `.env` itself so the value is present that early.
+  This was a live bug: `@WebSocketGateway({ cors: … process.env.CORS_ORIGIN })` ran before
+  `ConfigModule.forRoot()` and silently fell back to its default, leaving the socket on a
+  different origin policy than the HTTP server. Same variable, two values, nothing in the
+  logs. If you can inject, inject — `env.ts` is not a general-purpose config bag.
+- **`TenantContext`** is ambient by design. It is `AsyncLocalStorage`, and the code that
+  reads it — the Prisma extension — runs inside the client, where there is no injector.
+  Threading a principal through every call instead is the thing this exists to avoid.
+
 **3. `snapshot/domain/**` imports nothing from NestJS or Prisma.** It is the testable
 frontier — pure functions over plain values. If you find yourself wanting a repository in
 there, the logic belongs in the application layer instead.
@@ -158,6 +176,7 @@ npm run build && node dist/main.js
 | `snapshot/domain/session.spec.ts` | Invariant 6 and the 17:00 CT session boundary, including DST |
 | `snapshot/domain/positions.spec.ts` | Invariant 4 — netting, short sign, flip through zero, MNQ vs NQ |
 | `snapshot/domain/risk.spec.ts` | The zero-balance account, and the display/band ordering |
+| `config/env.spec.ts` | The dev-simulator gate — off in production, off when the flag is merely absent |
 
 ## Known debt and deliberate cuts
 
