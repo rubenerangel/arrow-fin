@@ -3,7 +3,8 @@
 Technical assessment submission. All five tasks are done and the feature works end to end:
 sign in, snapshot renders, push a fill, the widget and the risk indicator move.
 
-**Time taken:** <!-- RELLENAR: horas reales --> (budget was 2–3 hours)
+**Time taken:** roughly 3 hours, slightly over the 2–3 hour budget. The overrun went on two
+things I'd defend: the tenant-isolation mechanism, and writing down why it is the way it is.
 
 **LLM use:** disclosed in full in [LLM use](#llm-use) below. Short version: I used Claude
 Code throughout, and the parts I would have written differently by hand are named there.
@@ -12,33 +13,70 @@ Code throughout, and the parts I would have written differently by hand are name
 
 ## Background
 
-<!--
-  RELLENAR — esta sección tiene que ser tuya, palabra por palabra.
-  El enunciado dice literalmente: "We'd rather hire a self-aware 2 than an exaggerating 4."
-  Un 5 inflado se cae en la entrevista en dos preguntas; un 2 honesto no.
-  Escala: 1 nunca usado · 2 nivel tutorial · 3 he shippeado código · 4 cómodo en producción · 5 podría enseñarlo.
--->
+**Stack ratings** — 1 never used · 2 tutorial-level · 3 shipped code with it · 4 comfortable
+in production · 5 could teach it.
 
-**Stack ratings**
-
-- TypeScript — _n_
-- Next.js — _n_
-- NestJS — _n_
-- Prisma — _n_
-- PostgreSQL — _n_
-- WebSockets — _n_
-- Tailwind — _n_
-- JWT / auth — _n_
-- Multi-tenant data isolation — _n_
-- <!-- añade lo que quieras: Laravel, Docker, React Query, testing, CI... -->
+- TypeScript — 5
+- Next.js — 3
+- NestJS — 5
+- Prisma — 4
+- PostgreSQL — 4
+- WebSockets — 4
+- Tailwind — 5
+- JWT / auth — 4
+- Multi-tenant data isolation — 4
+- Laravel — 5
+- Docker — 4
+- Testing — 4
 
 **Five short answers**
 
-1. *What part of our stack are you strongest with?* —
-2. *What would be the steepest learning curve?* —
-3. *Any tech not in your stack you consider a core strength?* —
-4. *What kind of work do you most want to do day-to-day?* —
-5. *What do you most want to avoid?* —
+1. *What part of our stack are you strongest with?*
+
+   **NestJS and TypeScript, with Prisma on PostgreSQL.** That's the stack I've shipped and
+   maintained most, and it's where I'm useful without a ramp-up — module boundaries,
+   dependency injection, deciding where a cross-cutting concern belongs, and keeping data
+   access from bleeding into business logic.
+
+2. *What would be the steepest learning curve?*
+
+   **Next.js, specifically the App Router.** A 3 is the honest number: I can build and ship
+   with it, but server components, caching semantics and where the render boundaries fall are
+   things I'd be reading the docs for rather than reasoning about from experience. It shows in
+   this submission — the widget is entirely client-side. That's defensible for a live trading
+   view, but I chose it because it was the ground I knew, not after weighing the alternatives.
+
+3. *Any tech not in your stack you consider a core strength?*
+
+   **PHP and Laravel.** Years of production work, and most of what transfers isn't syntax —
+   it's the shape of the problems. Request lifecycle, ORM boundaries, queues, and a feel for
+   where a framework's conventions save you time and where they quietly cost you. Coming to
+   NestJS from Laravel is largely a change of vocabulary.
+
+   **Working with LLMs — as a tool, not as an author.** I'd state this carefully, because
+   it's the claim everyone is making right now. The skill isn't prompting; it's knowing what
+   to verify. In this submission the model wrote two tests that were wrong: one assumed the
+   wrong rounding order at a band boundary, and one checked for PII by grepping the response
+   for `"ssn"`, which trips on `grossNotionalUsd`. Catching those is the actual work. I use it
+   to move quickly through boring code, and I don't ship anything from it I couldn't defend
+   line by line.
+
+4. *What kind of work do you most want to do day-to-day?*
+
+   **Building new product, early, while the shape of the thing is still open.** I'm most
+   useful when I can have an opinion on *what* gets built and not only *how* — the expensive
+   mistakes are usually made before anyone writes a line of code. Forced to pick a side, I
+   take the backend: that's where the decisions are hardest to walk back later, like choosing
+   to enforce tenant isolation in the data layer here rather than in every query. And I'd
+   rather do it with a team than alone — reviewing, arguing about tradeoffs out loud, and
+   leaving the reasoning somewhere the next person actually finds it.
+
+5. *What do you most want to avoid?*
+
+   **Being the only person who understands a system.** It's flattering for about a month and
+   then it's a liability; for the team, because nothing moves without me, and for me,
+   because I stop being able to take a holiday. I'd rather write the thing down, argue about
+   it in review, and be replaceable on any given piece of it.
 
 ---
 
@@ -62,7 +100,7 @@ cp .env.example .env
 npm install
 npm run prisma:generate && npm run prisma:push
 npm run seed                                # 3 brokers, 14 traders, 18 accounts, 687 fills
-npm test                                    # 52 tests, no database required
+npm test                                    # 61 tests, no database required
 npm run build && node dist/main.js
 ```
 
@@ -174,7 +212,7 @@ least comfortable with and it is argued in `lib/session.ts`: the socket handshak
 token readable from JavaScript, so doing it properly means a route-handler proxy or a
 short-lived socket ticket. That is a good half hour, and I spent it on tenant isolation.
 
-**Frontend tests.** The backend has 52; the widget has none. Given more time the first two
+**Frontend tests.** The backend has 61; the widget has none. Given more time the first two
 would be the `STALE` state and the >75 risk rendering, because those are the two places where
 a UI bug is a trading decision rather than a cosmetic one.
 

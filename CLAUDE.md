@@ -177,7 +177,7 @@ cp .env.example .env
 npm install
 npm run prisma:generate && npm run prisma:push
 npm run seed                                # 3 brokers, 14 traders, 18 accounts, 687 fills
-npm test                                    # 52 tests, no database needed
+npm test                                    # 61 tests, no database needed
 npm run build && node dist/main.js
 ```
 
